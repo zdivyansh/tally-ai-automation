@@ -1,5 +1,7 @@
+from decimal import Decimal
 from typing import Any
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from tally_ai.agents.sales.extraction import ExtractedItem, Extraction, LLMExtractor, apply_guards
@@ -75,3 +77,47 @@ def test_llm_extractor_applies_guards() -> None:
     got = extractor.extract("sold 3 ctn Crunchy 300 5/- to Sharma ji")
     assert got.items[0].name == "Crunchy 300 5/-"
     assert got.items[0].rate is None
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "@840",
+        "rate 840",
+        "rate of ctn 840",
+        "ctn rate 840",
+        "ctn ka rate 840",
+        "rate per carton 840",
+        "rate is rs 840",
+        "rate: ₹840",
+        "840 per ctn",
+        "840/ctn",
+        "per ctn 840",
+        "bhav 840",
+        "840 ke rate",
+    ],
+)
+def test_rate_phrasings_are_kept(phrase: str) -> None:
+    message = f"sold 3 carton chips 48 20/- to Sharma Traders {phrase} discount 5%"
+    model_output = extraction(
+        ExtractedItem(name="chips 48 20/-", quantity=3, unit="carton", rate=840, discount_pct=5)
+    )
+    got = apply_guards(model_output, message).items[0]
+    assert (got.rate, got.discount_pct) == (840, 5)
+
+
+def test_discount_must_be_a_percentage() -> None:
+    """In 'ctn 840 discount 5%' the number before 'discount' is the rate, not a discount."""
+    message = "sold 3 ctn chips 48 20/- to Sharma Traders rate of ctn 840 discount"
+    model_output = extraction(ExtractedItem(name="chips 48 20/-", quantity=3, rate=840, discount_pct=840))
+    got = apply_guards(model_output, message).items[0]
+    assert (got.rate, got.discount_pct) == (840, None)
+
+
+@pytest.mark.parametrize(
+    ("phrase", "rate"), [("rate 1300", 1300), ("rate 1 ctn 840", 840), ("rate 150", 150)]
+)
+def test_rate_digits_are_not_split(phrase: str, rate: int) -> None:
+    from tally_ai.agents.sales.extraction import _RATE_PATTERNS, _stated_values
+
+    assert _stated_values(_RATE_PATTERNS, phrase) == {Decimal(rate)}

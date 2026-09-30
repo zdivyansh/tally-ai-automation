@@ -92,11 +92,19 @@ class Extractor(Protocol):
 
 _NUM = r"(\d+(?:\.\d+)?)"
 # A stated rate: "@1150", "rate 1150", "1150 per ctn", "1150/ctn", "bhav 1150", "1150 ke rate"
+_UNIT_WORD = r"(?:ctns?|cartons?|cartoons?|pcs|pc|piece|box|pkt|packet|kg)"
+_RS = r"(?:rs\.?|₹)?\s*"
+_SEP = r"(?:is|:|-|=)?\s*"
+# A stated rate: "@840", "rate 840", "rate of ctn 840", "ctn rate 840", "rate per carton 840",
+# "rate is rs 840", "840 per ctn", "840/ctn", "per ctn 840", "bhav 840", "840 ke rate"
 _RATE_PATTERNS = [
-    rf"@\s*(?:rs\.?\s*)?{_NUM}",
-    rf"\brate\s*(?:is|of|:|-)?\s*(?:rs\.?\s*)?{_NUM}",
-    rf"\bbhav\s*(?:rs\.?\s*)?{_NUM}",
-    rf"{_NUM}\s*(?:rs\.?\s*)?(?:per|/)\s*(?:ctn|carton|pcs|pc|box|pkt|kg)\b",
+    rf"@\s*{_RS}{_NUM}",
+    # "(a|one|1)" needs a space after it, or "rate 1300" would read as 300
+    rf"\brate\s*(?:of|per|for)?\s*(?:(?:a|one|1)\s+)?(?:{_UNIT_WORD}\s*)?{_SEP}{_RS}{_NUM}",
+    rf"\b{_UNIT_WORD}\s*(?:ka|ke|ki)?\s*(?:rate|bhav)\s*{_SEP}{_RS}{_NUM}",
+    rf"\bper\s*{_UNIT_WORD}\s*{_SEP}{_RS}{_NUM}",
+    rf"\bbhav\s*{_SEP}{_RS}{_NUM}",
+    rf"{_NUM}\s*{_RS}(?:per|/)\s*{_UNIT_WORD}\b",
     rf"{_NUM}\s*(?:ke|ka)\s*(?:rate|bhav)",
 ]
 # A stated discount: "12%", "less 12", "12 less", "disc 12", "12 disc", "chhut 12"
@@ -105,6 +113,7 @@ _DISCOUNT_PATTERNS = [
     rf"\b(?:less|disc(?:ount)?|chh?ut|chhoot)\s*(?:of\s*)?{_NUM}",
     rf"{_NUM}\s*(?:less|disc(?:ount)?|chh?ut|chhoot)\b",
 ]
+MAX_DISCOUNT = Decimal(100)
 
 
 def _stated_values(patterns: list[str], text: str) -> set[Decimal]:
@@ -151,7 +160,8 @@ def apply_guards(extraction: Extraction, message: str, previous: Extraction | No
     """
     numbers = _numbers_in(message)
     stated_rates = _stated_values(_RATE_PATTERNS, message)
-    stated_discounts = _stated_values(_DISCOUNT_PATTERNS, message)
+    # A discount is a percentage: in "ctn 840 discount 5%" only 5 qualifies
+    stated_discounts = {d for d in _stated_values(_DISCOUNT_PATTERNS, message) if 0 < d <= MAX_DISCOUNT}
     known = previous.items if previous else []
     known_qty = {i.quantity for i in known if i.quantity is not None}
     known_rate = {i.rate for i in known if i.rate is not None}
