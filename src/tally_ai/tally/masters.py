@@ -83,6 +83,7 @@ class StockItem(_Model):
     base_unit: str | None = None
     hsn: str | None = None
     gst: GstDetails = GstDetails()
+    closing_quantity: Decimal | None = Field(default=None, description="Closing stock in base units")
 
 
 class VoucherTypeInfo(_Model):
@@ -98,6 +99,19 @@ class VoucherSummary(_Model):
     party_ledger: str | None = None
     master_id: int | None = None
     alter_id: int | None = None
+
+
+class SalesLine(_Model):
+    """One inventory line of a past sales voucher."""
+
+    date: date
+    master_id: int
+    number: str | None
+    party: str
+    stock_item: str
+    rate: Decimal
+    unit: str | None
+    discount_pct: Decimal = Decimal(0)
 
 
 def resolve_group_path(parent: str | None, groups: Mapping[str, Group]) -> tuple[str, ...]:

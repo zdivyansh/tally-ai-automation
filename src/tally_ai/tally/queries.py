@@ -2,6 +2,7 @@
 
 import xml.etree.ElementTree as ET
 from datetime import date
+from decimal import Decimal
 
 from tally_ai.tally.client import TallyClient
 from tally_ai.tally.masters import (
@@ -10,13 +11,14 @@ from tally_ai.tally.masters import (
     GstDetails,
     GstRate,
     Ledger,
+    SalesLine,
     StockGroup,
     StockItem,
     VoucherSummary,
     VoucherTypeInfo,
     resolve_group_path,
 )
-from tally_ai.tally.parsing import parse_date, parse_decimal, text
+from tally_ai.tally.parsing import parse_date, parse_decimal, parse_quantity, parse_rate, text
 from tally_ai.tally.xml_builder import tdl_string
 
 # Wide enough to cover every financial year a company can hold
@@ -140,7 +142,8 @@ class TallyQueries:
 
     def stock_items(self) -> list[StockItem]:
         root = self.client.export_collection(
-            "StockItem", ["Name", "Parent", "LanguageName", "BaseUnits", "GSTDetails.*", "HSNDetails.*"]
+            "StockItem",
+            ["Name", "Parent", "LanguageName", "BaseUnits", "ClosingBalance", "GSTDetails.*", "HSNDetails.*"],
         )
         items = []
         for elem in root.iter("STOCKITEM"):
@@ -152,6 +155,7 @@ class TallyQueries:
                 for h in elem.findall("HSNDETAILS.LIST")
                 if (code := text(h, "HSNCODE"))
             ]
+            closing = parse_quantity(text(elem, "CLOSINGBALANCE"))
             items.append(
                 StockItem(
                     name=name,
@@ -160,6 +164,7 @@ class TallyQueries:
                     base_unit=text(elem, "BASEUNITS"),
                     hsn=max(hsn_codes)[1] if hsn_codes else None,
                     gst=parse_gst_details(elem),
+                    closing_quantity=closing[0] if closing else None,
                 )
             )
         return items
@@ -210,3 +215,47 @@ class TallyQueries:
                 )
             )
         return sorted(summaries, key=lambda s: (s.date, s.master_id or 0), reverse=True)
+
+    def sales_lines(self, *, voucher_type: str, from_date: date, to_date: date) -> list[SalesLine]:
+        """Inventory lines of sales vouchers in a date range, oldest first."""
+        root = self.client.export_collection(
+            "Voucher",
+            [
+                "Date",
+                "MasterID",
+                "VoucherNumber",
+                "VoucherTypeName",
+                "PartyLedgerName",
+                "AllInventoryEntries.StockItemName",
+                "AllInventoryEntries.Rate",
+                "AllInventoryEntries.Discount",
+            ],
+            filters=[f"$VoucherTypeName = {tdl_string(voucher_type)}"],
+            from_date=from_date,
+            to_date=to_date,
+        )
+        lines = []
+        for v in root.iter("VOUCHER"):
+            vdate = parse_date(text(v, "DATE"))
+            party = text(v, "PARTYLEDGERNAME")
+            master_id = _int(text(v, "MASTERID"))
+            if vdate is None or party is None or master_id is None:
+                continue
+            for entry in v.findall("ALLINVENTORYENTRIES.LIST"):
+                item = text(entry, "STOCKITEMNAME")
+                rate = parse_rate(text(entry, "RATE"))
+                if item is None or rate is None:
+                    continue
+                lines.append(
+                    SalesLine(
+                        date=vdate,
+                        master_id=master_id,
+                        number=text(v, "VOUCHERNUMBER"),
+                        party=party,
+                        stock_item=item,
+                        rate=rate[0],
+                        unit=rate[1],
+                        discount_pct=parse_decimal(text(entry, "DISCOUNT")) or Decimal(0),
+                    )
+                )
+        return sorted(lines, key=lambda line: (line.date, line.master_id))

@@ -8,7 +8,9 @@
         {
           "name": "crunchy 300 5/-",
           "qty": 3,
-          "unit": "ctn"
+          "unit": "ctn",
+          "rate": null,
+          "discount": null
         }
       ]
     }
@@ -22,12 +24,16 @@
         {
           "name": "masala puff 10",
           "qty": 5,
-          "unit": "ctn"
+          "unit": "ctn",
+          "rate": null,
+          "discount": null
         },
         {
           "name": "mix namkeen 400g",
           "qty": 2,
-          "unit": "ctn"
+          "unit": "ctn",
+          "rate": null,
+          "discount": null
         }
       ]
     }
@@ -49,7 +55,9 @@
         {
           "name": "crunchy 300 5/-",
           "qty": 50,
-          "unit": "ctn"
+          "unit": "ctn",
+          "rate": 1150,
+          "discount": null
         }
       ]
     }
@@ -63,7 +71,9 @@
         {
           "name": "aloo bhujia 200g",
           "qty": 10,
-          "unit": "ctn"
+          "unit": "ctn",
+          "rate": null,
+          "discount": null
         }
       ],
       "date_text": "kal"
@@ -71,6 +81,29 @@
   },
   {
     "message": "Gupta store ka outstanding kitna hai?",
+    "expected": {
+      "intent": "query",
+      "party": "gupta store"
+    }
+  },
+  {
+    "message": "Sharma ji ko 4 ctn Crunchy 300 5/- @1200 less 10% diya",
+    "expected": {
+      "intent": "sales",
+      "party": "sharma ji",
+      "items": [
+        {
+          "name": "crunchy 300 5/-",
+          "qty": 4,
+          "unit": "ctn",
+          "rate": 1200,
+          "discount": 10
+        }
+      ]
+    }
+  },
+  {
+    "message": "Gupta store ka hisaab kitna baaki hai?",
     "expected": {
       "intent": "query",
       "party": "gupta store"

@@ -8,9 +8,9 @@ The LLM only turns the message into structured fields. Matching names to Tally
 masters, GST, round-off, numbering and XML are ordinary tested code, so the
 same input always produces the same voucher.
 
-> **Status:** phase 1 (foundation) is done: Tally client, typed models, XML
-> builder, LLM provider factory, `doctor` CLI. The natural-language agent
-> arrives in phase 2; the old prototype in `app/` is kept until then.
+> **Status:** sales invoices work end to end from the CLI. Purchase, receipt
+> and payment vouchers are planned. The business rules (rate, discount, GST,
+> round-off, numbering, confirmation) are in [docs/sales-rules.md](docs/sales-rules.md).
 
 ## Setup
 
@@ -20,8 +20,44 @@ XML/HTTP server enabled (F1 > Settings > Connectivity, port 9000).
 ```sh
 uv sync                    # creates .venv and installs everything
 cp .env.example .env       # then edit TALLY_HOST, LLM settings, ...
-uv run tally-ai doctor     # checks Tally, master data and the LLM
+uv run tally-ai doctor     # checks Tally, master data, sales ledgers and the LLM
+uv run tally-ai chat       # enter sales in plain language
 ```
+
+### Example
+
+```
+you> sold 3 ctn Crunchy 300 5/- to sharma
+
+Rate for Crunchy (300) 5/- (3 Ctn)?
+  - last to Sharma Traders: ₹1,300.00/Ctn on 10-Sep-2026
+  - last to anyone: ₹1,310.63/Ctn on 28-Sep-2026 (Gupta Store (Station))
+Reply with a rate, 'same' (last to anyone), 'customer' (last to this customer).
+
+you> same
+
+Sales invoice ABC/26-27/0008  |  30-Sep-2026
+Customer: Sharma Traders (Jharkhand)
+
+1. Crunchy (300) 5/-
+   3 Ctn x ₹1,310.63 less 12% = ₹3,460.06
+   rate: item's last rate (you chose); discount: customer's last (10-Sep-2026)
+
+   Taxable     ₹3,460.06
+   CGST 2.5%   ₹86.50
+   SGST 2.5%   ₹86.50
+   Round off   -₹0.06
+   Total       ₹3,633.00
+
+Reply 'yes' to post, 'no' to cancel, or type a correction (e.g. 'rate 1300', 'qty 5').
+
+you> yes
+
+Posted sales invoice ABC/26-27/0008 for Sharma Traders, total ₹3,633.00.
+```
+
+Ambiguous names are asked as numbered choices; `cancel` at any question stops
+without posting.
 
 ### LLM providers
 
@@ -38,6 +74,14 @@ Set `LLM_PROVIDER` in `.env`:
 ```
 src/tally_ai/
   config.py          settings from env / .env
+  agents/sales/      the sales agent (LangGraph)
+    extraction.py    LLM prompt + guards: message -> structured fields
+    draft.py         what is known, what to ask next, applying answers
+    compose.py       draft -> computed invoice with explanations
+    graph.py         extract -> resolve <-> ask -> build -> confirm -> post
+    render.py        user-facing text (channel-agnostic)
+  accounting/        dates, numbering, sales history, invoice maths
+  masters/           cached master data, fuzzy matcher
   tally/             Tally access, no LLM code
     client.py        HTTP transport; turns Tally's in-band errors into exceptions
     xml_builder.py   voucher / export / delete XML (ElementTree, no templates)
@@ -50,7 +94,7 @@ tests/
   unit/              fast tests, no Tally or LLM needed
   fixtures/          synthetic Tally responses
   live/              opt-in tests against a real Tally server
-  eval/              LLM extraction benchmarks
+  eval/              LLM extraction benchmark (real cases in a gitignored file)
 ```
 
 ## Development
@@ -58,6 +102,7 @@ tests/
 ```sh
 uv run pytest                          # unit tests
 TALLY_LIVE=1 uv run pytest -m live     # also run against the Tally in .env
+uv run python tests/eval/ollama_model_bench.py   # extraction accuracy of the LLM
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```

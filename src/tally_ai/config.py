@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # Sales vouchers (see docs/sales-rules.md)
+    sales_voucher_type: str = "Sales"
+    sales_ledger: str = "Sales"
+    sales_interstate_ledger: str | None = None  # None = use sales_ledger for IGST sales too
+    round_off_ledger: str | None = None  # None = the single ledger whose name contains "round"
+    cgst_ledger: str | None = None  # None = the single ledger with GST duty head CGST
+    sgst_ledger: str | None = None  # ... SGST/UTGST
+    igst_ledger: str | None = None  # ... IGST
+    sales_number_prefix: str | None = None  # None = derived from existing numbers, e.g. "ABC"
+    godown: str | None = "Main Location"
+    batch: str | None = "Primary Batch"
+
     # App
     log_level: str = "INFO"
 
@@ -46,7 +58,20 @@ class Settings(BaseSettings):
         value = value.strip().rstrip("/")
         return value if value.startswith(("http://", "https://")) else f"http://{value}"
 
-    @field_validator("tally_company", "gemini_api_key", "openrouter_api_key", mode="before")
+    @field_validator(
+        "tally_company",
+        "gemini_api_key",
+        "openrouter_api_key",
+        "sales_interstate_ledger",
+        "round_off_ledger",
+        "cgst_ledger",
+        "sgst_ledger",
+        "igst_ledger",
+        "sales_number_prefix",
+        "godown",
+        "batch",
+        mode="before",
+    )
     @classmethod
     def _blank_is_none(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
