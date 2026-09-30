@@ -115,6 +115,10 @@ Desktop.ini
 ############################
 # Local company data - never commit (repo is public)
 backups/
+data/
+tests/eval/*.local.json
+tests/eval/*.local.jsonl
+tests/eval/reports/
 tests/live/*_output_*.txt
 tests/eval/cases.local.json
 # Tool caches

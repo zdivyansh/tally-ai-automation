@@ -15,6 +15,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from tally_ai.agents.sales.spans import extend_to_typed, item_chunks, party_span
+
 Intent = Literal["sales", "purchase", "receipt", "payment", "query", "other"]
 
 
@@ -173,10 +175,36 @@ def apply_guards(extraction: Extraction, message: str, previous: Extraction | No
         )
         for item in extraction.items
     ]
+    if previous is None:
+        items = _extend_items(items, message)
+    party = extraction.party
+    if previous is None:
+        span = party_span(message)
+        if span:
+            party = extend_to_typed(party, span, trailing_packs=False) if party else span
     date_text = extraction.date_text
     if date_text and previous is None and not _whole_words_in(date_text, message):
         date_text = None  # e.g. "kal" read out of "Kalpana"
-    return extraction.model_copy(update={"items": items, "date_text": date_text})
+    return extraction.model_copy(update={"items": items, "date_text": date_text, "party": party})
+
+
+def _extend_items(items: list[ExtractedItem], message: str) -> list[ExtractedItem]:
+    """Re-attach words the model dropped from item names, using '<qty> <unit> <text>' in the message."""
+    chunks = item_chunks(message)
+    used: set[int] = set()
+    extended = []
+    for item in items:
+        name = item.name
+        for index, (qty, typed) in enumerate(chunks):
+            if index in used or (item.quantity is not None and qty != item.quantity):
+                continue
+            candidate = extend_to_typed(name, typed)
+            if candidate != name or name.lower() == typed.lower():
+                used.add(index)
+                name = candidate
+                break
+        extended.append(item.model_copy(update={"name": name}))
+    return extended
 
 
 def _whole_words_in(phrase: str, message: str) -> bool:

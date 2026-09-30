@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from tally_ai.accounting.dates import parse_user_date
 from tally_ai.agents.sales.extraction import Extraction
+from tally_ai.agents.sales.units import unit_key
 from tally_ai.masters.cache import MasterData
 from tally_ai.masters.matcher import MatchResult, normalize
 
@@ -97,25 +98,9 @@ def merge_correction(old: SalesDraft, extraction: Extraction) -> SalesDraft:
 
 # ------------------------------------------------------------------ units
 
-_UNIT_SYNONYMS = {
-    "ctn": {"ctn", "ctns", "carton", "cartons", "cartoon", "cartoons", "crtn", "peti", "cs", "case", "cases"},
-    "pcs": {"pc", "pcs", "piece", "pieces", "nos", "no", "nag"},
-    "box": {"box", "boxes", "bx"},
-    "pkt": {"pkt", "pkts", "packet", "packets", "pack", "packs"},
-    "kg": {"kg", "kgs", "kilo", "kilos"},
-}
-
-
-def _unit_key(unit: str) -> str:
-    u = unit.strip().lower().rstrip(".")
-    for key, names in _UNIT_SYNONYMS.items():
-        if u == key or u in names:
-            return key
-    return u
-
 
 def unit_matches(unit_text: str | None, base_unit: str) -> bool:
-    return unit_text is None or _unit_key(unit_text) == _unit_key(base_unit)
+    return unit_text is None or unit_key(unit_text) == unit_key(base_unit)
 
 
 # ------------------------------------------------------------------ questions

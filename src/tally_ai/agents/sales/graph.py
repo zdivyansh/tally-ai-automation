@@ -36,9 +36,11 @@ from tally_ai.agents.sales.draft import (
 from tally_ai.agents.sales.extraction import Extractor
 from tally_ai.agents.sales.render import inr, render_invoice, render_question
 from tally_ai.agents.sales.store import VoucherStore
+from tally_ai.audit import AuditLog
 from tally_ai.masters.cache import MasterData
 from tally_ai.tally.errors import TallyError
 from tally_ai.tally.masters import SalesLine
+from tally_ai.tally.xml_builder import build_import_request
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ Status = Literal["running", "posted", "cancelled", "failed", "unsupported"]
 
 YES = {
     "yes",
+    "yup",
     "y",
     "ok",
     "okay",
@@ -58,6 +61,8 @@ YES = {
     "done",
     "theek hai",
     "thik hai",
+    "thik",
+    "theek",
 }
 NO = {"no", "n", "nahi", "nahin", "cancel", "stop"}
 CANCEL = {"cancel", "stop", "exit", "quit"}
@@ -71,6 +76,8 @@ class SalesState(TypedDict, total=False):
     summary: str | None
     status: Status
     result: str | None
+    thread_id: str
+    total: str | None
 
 
 @dataclass
@@ -81,6 +88,8 @@ class SalesContext:
     voucher_type: str = "Sales"
     number_prefix: str | None = None
     today: Callable[[], date] = date.today
+    audit: AuditLog | None = None
+    channel: str = "cli"
 
 
 def _normalize_reply(text: str) -> str:
@@ -184,10 +193,37 @@ def build_graph(ctx: SalesContext, checkpointer: BaseCheckpointSaver[Any] | None
             # Someone may have billed in Tally meanwhile: take the number again
             number = compute_number(draft.date)
             composed = compose(draft, number)
-            result = ctx.store.post(composed.invoice.voucher)
-            found = ctx.store.find(ctx.voucher_type, number, draft.date)
         except (NumberingError, InvoiceError, TallyError) as e:
+            return {"status": "failed", "result": f"Cannot build the invoice: {e}"}
+        voucher = composed.invoice.voucher
+
+        def audit_posting(ok: bool, result: dict[str, Any] | None, error: str | None) -> None:
+            if ctx.audit and state.get("thread_id"):
+                ctx.audit.posting(
+                    state["thread_id"],
+                    request_xml=build_import_request([voucher]),
+                    ok=ok,
+                    voucher_number=number,
+                    voucher_date=voucher.date.isoformat(),
+                    party=voucher.party_ledger,
+                    total=str(composed.invoice.total),
+                    remote_id=voucher.remote_id,
+                    result=result,
+                    error=error,
+                )
+
+        try:
+            result = ctx.store.post(voucher)
+        except TallyError as e:
+            import_result = getattr(e, "result", None)
+            audit_posting(False, import_result.model_dump() if import_result else None, str(e))
             return {"status": "failed", "result": f"Tally did not accept the invoice: {e}"}
+        audit_posting(True, result.model_dump(), None)
+        try:
+            found = ctx.store.find(ctx.voucher_type, number, draft.date)
+        except TallyError:
+            logger.exception("posted %s but could not read it back", number)
+            found = []
 
         # Later rate hints and discounts should see this invoice
         master_id = found[0].master_id if found and found[0].master_id else 0
@@ -209,6 +245,7 @@ def build_graph(ctx: SalesContext, checkpointer: BaseCheckpointSaver[Any] | None
         return {
             "status": "posted",
             "number": number,
+            "total": str(composed.invoice.total),
             "result": f"{verb} sales invoice {number} for {draft.party}, "
             f"total {inr(composed.invoice.total)}{note}.",
         }
@@ -266,21 +303,51 @@ class AgentTurn:
 
 
 class SalesAgent:
-    """Drives the graph one user message at a time."""
+    """Drives the graph one user message at a time, recording everything in the audit log."""
 
     def __init__(self, ctx: SalesContext, checkpointer: BaseCheckpointSaver[Any] | None = None) -> None:
+        self.ctx = ctx
         self.graph = build_graph(ctx, checkpointer)
 
+    @staticmethod
+    def _config(thread_id: str) -> dict[str, Any]:
+        return {"configurable": {"thread_id": thread_id}}
+
     def _run(self, payload: Any, thread_id: str) -> AgentTurn:
-        config = {"configurable": {"thread_id": thread_id}}
-        state = self.graph.invoke(payload, config)
+        state = self.graph.invoke(payload, self._config(thread_id))
         interrupts = state.get("__interrupt__")
         if interrupts:
-            return AgentTurn(text=str(interrupts[0].value["text"]), done=False, status="running")
-        return AgentTurn(text=state.get("result") or "", done=True, status=state.get("status", "failed"))
+            turn = AgentTurn(text=str(interrupts[0].value["text"]), done=False, status="running")
+        else:
+            turn = AgentTurn(text=state.get("result") or "", done=True, status=state.get("status", "failed"))
+        audit = self.ctx.audit
+        if audit:
+            audit.event(thread_id, "agent", turn.text)
+            if turn.done:
+                self._finish(audit, thread_id, turn)
+        return turn
 
-    def start(self, message: str, thread_id: str) -> AgentTurn:
-        return self._run({"message": message}, thread_id)
+    def _finish(self, audit: AuditLog, thread_id: str, turn: AgentTurn) -> None:
+        values = self.graph.get_state(self._config(thread_id)).values
+        draft: SalesDraft | None = values.get("draft")
+        audit.finish(
+            thread_id,
+            status=turn.status,
+            result=turn.text,
+            draft=draft.model_dump(mode="json") if draft else None,
+            party=draft.party if draft else None,
+            voucher_date=draft.date.isoformat() if draft and draft.date else None,
+            voucher_number=values.get("number") if turn.status == "posted" else None,
+            total=values.get("total"),
+            remote_id=draft.remote_id if draft else None,
+        )
+
+    def start(self, message: str, thread_id: str, *, user: str | None = None) -> AgentTurn:
+        if self.ctx.audit:
+            self.ctx.audit.start(thread_id, channel=self.ctx.channel, user=user, message=message)
+        return self._run({"message": message, "thread_id": thread_id}, thread_id)
 
     def reply(self, answer: str, thread_id: str) -> AgentTurn:
+        if self.ctx.audit:
+            self.ctx.audit.event(thread_id, "user", answer)
         return self._run(Command(resume=answer), thread_id)

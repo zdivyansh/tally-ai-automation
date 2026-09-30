@@ -2,7 +2,7 @@
 
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -35,6 +35,7 @@ def chat(
     today: str | None = typer.Option(None, help="Pretend today is this date (YYYY-MM-DD); for testing"),
 ) -> None:
     """Enter sales in plain language, e.g. 'sold 3 ctn KK 300 5/- to Sharma ji'."""
+    import getpass
     import sys
     import uuid
     from datetime import date
@@ -42,6 +43,7 @@ def chat(
     from tally_ai.agents.sales import SalesAgent, SalesContext
     from tally_ai.agents.sales.extraction import LLMExtractor
     from tally_ai.agents.sales.store import TallyVoucherStore
+    from tally_ai.audit import AuditLog
     from tally_ai.llm import create_chat_model
     from tally_ai.masters.cache import MasterData
     from tally_ai.tally import TallyClient, TallyQueries
@@ -65,6 +67,8 @@ def chat(
                 voucher_type=settings.sales_voucher_type,
                 number_prefix=settings.sales_number_prefix,
                 today=current_day,
+                audit=AuditLog(settings.audit_db_path),
+                channel="cli",
             )
         )
         typer.echo(
@@ -81,7 +85,7 @@ def chat(
             if not message:
                 continue
             thread = str(uuid.uuid4())
-            turn = agent.start(message, thread)
+            turn = agent.start(message, thread, user=getpass.getuser())
             while not turn.done:
                 typer.echo(f"\n{turn.text}\n")
                 try:
@@ -177,3 +181,100 @@ def _check_sales_setup(queries: "TallyQueries", settings: "Settings", report: "R
         report("Next sales number", True, next_number(prefix, today, existing))
     except NumberingError as e:
         report("Next sales number", False, str(e))
+
+
+eval_app = typer.Typer(
+    help="Measure extraction and matching accuracy (docs/evaluation.md).", no_args_is_help=True
+)
+app.add_typer(eval_app, name="eval")
+
+DEFAULT_GENERATED = "tests/eval/generated.local.json"
+
+
+@eval_app.command("generate")
+def eval_generate(
+    count: int = typer.Option(200, help="Number of cases"),
+    seed: int = typer.Option(1, help="Random seed (same seed = same cases)"),
+    out: str = typer.Option(DEFAULT_GENERATED, help="Output file (contains real names: keep local)"),
+) -> None:
+    """Write cases built from past sales invoices in Tally."""
+    from datetime import date
+    from pathlib import Path
+
+    from tally_ai.accounting.dates import fy_end, fy_start
+    from tally_ai.evaluation.cases import save_cases
+    from tally_ai.evaluation.generate import generate_cases
+    from tally_ai.masters.cache import MasterData
+    from tally_ai.tally import TallyClient, TallyQueries
+
+    settings = get_settings()
+    today = date.today()
+    with TallyClient.from_settings(settings) as client:
+        queries = TallyQueries(client)
+        masters = MasterData.load(queries, settings, today)
+        lines = queries.sales_lines(
+            voucher_type=settings.sales_voucher_type,
+            from_date=fy_start(date(fy_start(today).year - 1, 4, 1)),
+            to_date=fy_end(today),
+        )
+    cases = generate_cases(masters, lines, count=count, seed=seed)
+    save_cases(Path(out), cases)
+    typer.echo(f"Wrote {len(cases)} cases to {out}")
+
+
+@eval_app.command("run")
+def eval_run(
+    files: Annotated[
+        list[str] | None, typer.Argument(help="Case files (default: local hand-written and generated)")
+    ] = None,
+    no_llm: bool = typer.Option(False, "--no-llm", help="Skip the LLM; match the known texts only (fast)"),
+    no_tally: bool = typer.Option(False, "--no-tally", help="Skip matching; check extraction only"),
+    model: str | None = typer.Option(None, help="Ollama model to use instead of OLLAMA_MODEL"),
+    limit: int | None = typer.Option(None, help="Only the first N cases of each file"),
+    failures: int = typer.Option(20, help="How many failures to print"),
+    fail_on_wrong: bool = typer.Option(False, help="Exit with code 1 if anything was picked wrong"),
+) -> None:
+    """Run evaluation cases and print accuracy."""
+    import sys
+    from datetime import date
+    from pathlib import Path
+
+    from tally_ai.agents.sales.extraction import LLMExtractor
+    from tally_ai.evaluation.cases import load_cases
+    from tally_ai.evaluation.runner import run_cases
+    from tally_ai.llm import create_chat_model
+    from tally_ai.masters.cache import MasterData
+    from tally_ai.tally import TallyClient, TallyQueries
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    settings = get_settings()
+    if model:
+        settings = settings.model_copy(update={"ollama_model": model})
+    paths = (
+        [Path(f) for f in files]
+        if files
+        else [p for p in (Path("tests/eval/cases.local.json"), Path(DEFAULT_GENERATED)) if p.exists()]
+    )
+    if not paths:
+        typer.echo("No case files. Run 'tally-ai eval generate' or pass a file.")
+        raise typer.Exit(code=2)
+
+    masters = None
+    if not no_tally:
+        with TallyClient.from_settings(settings) as client:
+            masters = MasterData.load(TallyQueries(client), settings, date.today())
+    extractor = None if no_llm else LLMExtractor(create_chat_model(settings))
+
+    wrong = 0
+    for path in paths:
+        cases = load_cases(path)[:limit]
+        if no_llm:
+            cases = [c for c in cases if c.texts is not None]
+        label = f"{settings.llm_provider}:{settings.ollama_model}" if extractor else "no LLM"
+        typer.echo(f"\n=== {path} ({len(cases)} cases, {label}) ===")
+        report = run_cases(cases, extractor=extractor, masters=masters, today=date.today())
+        typer.echo(report.render(show_failures=failures))
+        wrong += report.wrong_auto
+    if fail_on_wrong and wrong:
+        raise typer.Exit(code=1)

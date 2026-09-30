@@ -1,5 +1,7 @@
 # tally-ai
 
+[![CI](https://github.com/zdivyansh/tally-ai-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/zdivyansh/tally-ai-automation/actions/workflows/ci.yml)
+
 Create Tally vouchers from plain-language messages (English or Hinglish), e.g.
 
 > sold 3 ctn Crunchy 300 5/- to Sharma ji
@@ -59,6 +61,28 @@ Posted sales invoice ABC/26-27/0008 for Sharma Traders, total ₹3,633.00.
 Ambiguous names are asked as numbered choices; `cancel` at any question stops
 without posting.
 
+### Audit log
+
+Every conversation is recorded in a local SQLite file (`AUDIT_DB_PATH`,
+default `data/audit.db`, gitignored because it holds customer data):
+
+- `conversations`: message, channel, user, outcome, final draft, voucher number and total
+- `events`: every agent message and user reply, in order
+- `postings`: every attempt to post, with the exact XML sent and Tally's reply
+
+Open it with any SQLite viewer, e.g.
+`sqlite3 data/audit.db "select started_at, party, voucher_number, total, status from conversations"`.
+
+### Evaluation
+
+```sh
+uv run tally-ai eval generate --count 300   # realistic messages from your past invoices
+uv run tally-ai eval run                    # extraction + matching accuracy
+```
+
+The key number is "picked WRONG without asking", which must stay at 0. See
+[docs/evaluation.md](docs/evaluation.md).
+
 ### LLM providers
 
 Set `LLM_PROVIDER` in `.env`:
@@ -81,6 +105,8 @@ src/tally_ai/
     graph.py         extract -> resolve <-> ask -> build -> confirm -> post
     render.py        user-facing text (channel-agnostic)
   accounting/        dates, numbering, sales history, invoice maths
+  evaluation/        eval case format, generator, runner
+  audit.py           SQLite audit log
   masters/           cached master data, fuzzy matcher
   tally/             Tally access, no LLM code
     client.py        HTTP transport; turns Tally's in-band errors into exceptions
@@ -102,10 +128,14 @@ tests/
 ```sh
 uv run pytest                          # unit tests
 TALLY_LIVE=1 uv run pytest -m live     # also run against the Tally in .env
-uv run python tests/eval/ollama_model_bench.py   # extraction accuracy of the LLM
+uv run tally-ai eval run --no-llm       # quick matching regression after matcher changes
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
+
+CI (GitHub Actions) runs lint, format check, mypy and the unit tests on every
+push to `master` and on pull requests. Live Tally tests and LLM evaluation run
+only locally.
 
 Live tests create vouchers numbered `TEST/CLAUDE/...` and delete them again.
 Never point them at a company you cannot restore from backup.

@@ -15,12 +15,14 @@ import uuid
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from tally_ai.agents.sales import SalesAgent, SalesContext
 from tally_ai.agents.sales.extraction import LLMExtractor
 from tally_ai.agents.sales.store import TallyVoucherStore
+from tally_ai.audit import AuditLog
 from tally_ai.config import Settings
 from tally_ai.llm import create_chat_model
 from tally_ai.masters.cache import MasterData
@@ -54,11 +56,12 @@ def auto_answer(text: str) -> str:
 
 
 @pytest.mark.skipif(not MESSAGE, reason="set TALLY_TEST_MESSAGE")
-def test_message_to_posted_voucher(client: TallyClient) -> None:
+def test_message_to_posted_voucher(client: TallyClient, tmp_path: Path) -> None:
     settings = Settings()
     queries = TallyQueries(client)
     masters = MasterData.load(queries, settings, TODAY)
     store = TallyVoucherStore(client)
+    audit = AuditLog(tmp_path / "audit.db")
     agent = SalesAgent(
         SalesContext(
             masters=masters,
@@ -67,6 +70,7 @@ def test_message_to_posted_voucher(client: TallyClient) -> None:
             voucher_type=settings.sales_voucher_type,
             number_prefix=PREFIX,
             today=lambda: TODAY,
+            audit=audit,
         )
     )
     thread = str(uuid.uuid4())
@@ -88,6 +92,11 @@ def test_message_to_posted_voucher(client: TallyClient) -> None:
     assert number is not None
     posted = number.group(1)
     assert posted.startswith(f"{PREFIX}/")
+    conversation = audit.conversation(thread)
+    assert conversation is not None
+    assert (conversation["status"], conversation["voucher_number"]) == ("posted", posted)
+    (posting,) = audit.postings(thread)
+    assert posting["ok"] == 1 and f"<VOUCHERNUMBER>{posted}</VOUCHERNUMBER>" in posting["request_xml"]
     try:
         found = queries.vouchers(
             voucher_type=settings.sales_voucher_type, number=posted, from_date=TODAY, to_date=TODAY

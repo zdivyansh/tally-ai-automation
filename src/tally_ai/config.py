@@ -51,6 +51,7 @@ class Settings(BaseSettings):
 
     # App
     log_level: str = "INFO"
+    audit_db_path: str = "data/audit.db"  # local only: contains customer data
 
     @field_validator("tally_host")
     @classmethod
