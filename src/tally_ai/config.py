@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     godown: str | None = "Main Location"
     batch: str | None = "Primary Batch"
 
+    # Purchase invoices (see docs/purchase-invoices.md)
+    purchase_invoice_dir: str | None = None  # full path of the folder where invoice PDFs are saved
+    purchase_voucher_type: str = "Purchase"
+    purchase_ledger: str = "Purchase"
+    purchase_watch_seconds: float = 5.0
+
     # App
     log_level: str = "INFO"
     audit_db_path: str = "data/audit.db"  # local only: contains customer data
@@ -71,6 +77,7 @@ class Settings(BaseSettings):
         "sales_number_prefix",
         "godown",
         "batch",
+        "purchase_invoice_dir",
         mode="before",
     )
     @classmethod

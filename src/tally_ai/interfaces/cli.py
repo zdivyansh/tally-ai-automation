@@ -183,6 +183,10 @@ def _check_sales_setup(queries: "TallyQueries", settings: "Settings", report: "R
         report("Next sales number", False, str(e))
 
 
+from tally_ai.interfaces.cli_purchase import purchase_app  # noqa: E402
+
+app.add_typer(purchase_app, name="purchase")
+
 eval_app = typer.Typer(
     help="Measure extraction and matching accuracy (docs/evaluation.md).", no_args_is_help=True
 )

@@ -73,6 +73,20 @@ default `data/audit.db`, gitignored because it holds customer data):
 Open it with any SQLite viewer, e.g.
 `sqlite3 data/audit.db "select started_at, party, voucher_number, total, status from conversations"`.
 
+### Purchase invoices (PepsiCo)
+
+Save PepsiCo invoice PDFs in a folder (`PURCHASE_INVOICE_DIR` in `.env`) and run
+
+```sh
+uv run tally-ai purchase learn   # once: learn item mapping from bills already in Tally
+uv run tally-ai purchase watch   # confirm each new invoice; posts after your 'yes'
+```
+
+Invoices are read exactly (digital PDFs, no LLM), must reconcile to the
+printed totals, and are never posted twice. The PepsiCo -> Tally item mapping
+is an Excel-friendly `pepsico_mapping.csv` in the same folder. See
+[docs/purchase-invoices.md](docs/purchase-invoices.md).
+
 ### Evaluation
 
 ```sh
@@ -106,6 +120,7 @@ src/tally_ai/
     render.py        user-facing text (channel-agnostic)
   accounting/        dates, numbering, sales history, invoice maths
   evaluation/        eval case format, generator, runner
+  purchase/          PepsiCo invoice parser, mapping CSV, purchase voucher, folder watcher
   audit.py           SQLite audit log
   masters/           cached master data, fuzzy matcher
   tally/             Tally access, no LLM code

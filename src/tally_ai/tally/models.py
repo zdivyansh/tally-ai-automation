@@ -80,11 +80,18 @@ class InventoryLine(_Model):
     accounting_ledger: str = Field(min_length=1, description="e.g. 'Sales' or 'Purchase'")
     godown: str | None = "Main Location"
     batch: str | None = "Primary Batch"
+    exact_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Taxable value taken as-is (e.g. from a supplier invoice) instead of qty x rate",
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def amount(self) -> Decimal:
-        """Taxable value after discount, rounded to paise."""
+        """Taxable value after discount, rounded to paise (or the exact amount when given)."""
+        if self.exact_amount is not None:
+            return round_money(self.exact_amount)
         gross = self.quantity * self.rate
         return round_money(gross * (100 - self.discount_pct) / 100)
 
