@@ -109,3 +109,17 @@ dist/
 # OS Specific
 ############################
 Desktop.ini
+
+############################
+# tally-ai
+############################
+# Local company data - never commit (repo is public)
+backups/
+tests/live/*_output_*.txt
+tests/eval/cases.local.json
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+# Synthetic test fixtures are safe to commit
+!tests/fixtures/*.xml

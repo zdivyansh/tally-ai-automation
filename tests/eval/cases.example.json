@@ -1,0 +1,79 @@
+[
+  {
+    "message": "sold 3 ctn Crunchy 300 5/- to Sharma ji",
+    "expected": {
+      "intent": "sales",
+      "party": "sharma ji",
+      "items": [
+        {
+          "name": "crunchy 300 5/-",
+          "qty": 3,
+          "unit": "ctn"
+        }
+      ]
+    }
+  },
+  {
+    "message": "Gupta store ko 5 ctn masala puff 10 aur 2 ctn Mix Namkeen 400g bheja",
+    "expected": {
+      "intent": "sales",
+      "party": "gupta store",
+      "items": [
+        {
+          "name": "masala puff 10",
+          "qty": 5,
+          "unit": "ctn"
+        },
+        {
+          "name": "mix namkeen 400g",
+          "qty": 2,
+          "unit": "ctn"
+        }
+      ]
+    }
+  },
+  {
+    "message": "Sharma ji se 5000 cash mila",
+    "expected": {
+      "intent": "receipt",
+      "party": "sharma ji",
+      "amount": 5000
+    }
+  },
+  {
+    "message": "Snacks Co se 50 ctn Crunchy 300 5/- kharida @1150",
+    "expected": {
+      "intent": "purchase",
+      "party": "snacks co",
+      "items": [
+        {
+          "name": "crunchy 300 5/-",
+          "qty": 50,
+          "unit": "ctn"
+        }
+      ]
+    }
+  },
+  {
+    "message": "kal Verma general store ko 10 ctn aloo bhujia 200g diya",
+    "expected": {
+      "intent": "sales",
+      "party": "verma general store",
+      "items": [
+        {
+          "name": "aloo bhujia 200g",
+          "qty": 10,
+          "unit": "ctn"
+        }
+      ],
+      "date_text": "kal"
+    }
+  },
+  {
+    "message": "Gupta store ka outstanding kitna hai?",
+    "expected": {
+      "intent": "query",
+      "party": "gupta store"
+    }
+  }
+]

@@ -1,0 +1,6 @@
+<ENVELOPE><BODY><DATA><COLLECTION>
+ <GROUP NAME="Sundry Debtors"><PARENT>Current Assets</PARENT></GROUP>
+ <GROUP NAME="Current Assets"><PARENT>&#4; Primary</PARENT></GROUP>
+ <GROUP NAME="Retail Customers"><PARENT>Sundry Debtors</PARENT></GROUP>
+ <GROUP NAME="Duties &amp; Taxes"><PARENT>&#4; Primary</PARENT></GROUP>
+</COLLECTION></DATA></BODY></ENVELOPE>
